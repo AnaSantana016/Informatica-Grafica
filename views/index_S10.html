@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visualizador de Sítycletas</title>
+    <!-- Enlace al archivo de estilos externo -->
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div id="escena-container">
+      <!-- Carga de módulos, indicando release de threejs -->
+      <script type="importmap">
+        {
+          "imports": {
+            "three": "https://unpkg.com/three@0.152.1/build/three.module.js",
+            "three/": "https://cdn.skypack.dev/three@0.152.1/"
+          }
+        }
+      </script>
+
+      <!-- Script principal -->
+      <script src="/entrega2.js" type="module"></script>
+
+      <!-- Contenedor del canvas -->
+      <div id="canvas"></div>
+      <!-- Elemento para mostrar la fecha -->
+      <div id="fechaActual"></div>
+      <!-- Contenedor para botones -->
+      <div id="botones-container">
+        <!-- Botón para simular el paso del tiempo -->
+        <button id="simularButton">Simular Paso del Tiempo</button>
+
+        <!-- Botón para detener la simulación -->
+        <button id="detenerButton">Detener Simulación</button>
+
+        <!-- Botón para reiniciar la simulación -->
+        <button id="reiniciarButton">Reiniciar Simulación</button>
+      </div>
+    </div>
+  </body>
+</html>
