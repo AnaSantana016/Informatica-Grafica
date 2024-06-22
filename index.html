@@ -4,25 +4,52 @@
   <head>
     <style>
       #my_Canvas {
-        border: 5px groove green;
+        border: 0px dotted blue;
+      }
+      body,
+      html {
+        overflow: hidden;
       }
     </style>
+    <meta name="viewport" content="width=device-width, user-scalable=no" />
+    <script type="text/javascript" src="dat.gui.min.js"></script>
+    <script src="gl-matrix-min.js"></script>
   </head>
 
   <body>
-    <canvas width="300" height="400" id="my_Canvas"></canvas>
+    <canvas style="width: 95%" width="500" height="500" id="my_Canvas"></canvas>
 
     <!-- vertex Shader -->
     <script id="vertex-shader" type="x-shader/x-vertex">
-      #version 300 es
-      precision mediump float;
+        #version 300 es
+        precision mediump float;
 
-      in vec2 aCoordinates;
+        in vec3 aCoordinates;
+        in vec3 aVertexNormals;
+        uniform mat4 uModelMatrix;
+        uniform mat4 uViewMatrix;
+        out vec3 vNormal;
+        out vec3 vEyeVector;
+        out vec3 vLightDirection;
 
-      void main(void) {
-        gl_Position = vec4(aCoordinates, 0, 1);
-        gl_PointSize = 10.0;
-      }
+        void main(void) {
+
+          // saving vertex after transformations BEFORE PERSPECTIVE
+          vec4 vertex = uModelMatrix * vec4(aCoordinates, 1.0);
+          gl_Position = uViewMatrix * vertex;
+          
+          // compute normal vector
+          vNormal = vec3(uModelMatrix * vec4(aVertexNormals, 0.0));
+          
+          // compute vector from vertex to viewer
+          vEyeVector = -vertex.xyz;
+          
+          // compute vector from vertex to light
+          vec4 light = vec4(10,10,10,1);
+          
+          // light = uModelMatrix * vec4(10,10,10,1);
+          vLightDirection = light.xyz - vertex.xyz;
+       }
     </script>
 
     <!-- fragment Shader -->
@@ -32,22 +59,76 @@
 
         out vec4 fragColor;
         uniform vec4 uColor;
+        in vec3 vNormal;
+        in vec3 vEyeVector;
+        in vec3 vLightDirection;
 
         void main(void) {
-          fragColor = uColor;
-      }
+          // computing diffuse component
+          vec3 N = normalize(vNormal);
+          vec3 L = normalize(vLightDirection);
+          vec3 diffuseMaterial = vec3(0,1,0);
+          float diffuse = max(dot(N, L), 0.0);
+          vec4 Idif = vec4(diffuse*diffuseMaterial,1);
+          
+          // compute specular component
+          float NL = dot(N,L);
+          vec4 Ispec = vec4(0,0,0,1);
+          if (NL>0.0) {
+            vec3 R = 2.0*N*NL-L;
+            float shininess = 10.0;
+            vec3 specularMaterial = vec3(1,1,0);
+            vec3 V = normalize(vEyeVector);
+            float specular = pow(max(dot(R, V), 0.0), shininess);
+            Ispec = vec4(specular * specularMaterial, 1);
+          }
+          
+          // calculamos color final
+          fragColor = Idif + Ispec;
+          fragColor = min(fragColor, vec4(1,1,1,1));
+        }
     </script>
 
     <script>
-      var colorLocation;
+      const { vec2, vec3, mat3, mat4 } = glMatrix;
+
+      var gl;
       var canvas;
       var vertex_buffer;
-      var fila = 0.1;
-      var direction = 1;
-      var speed = 0.005;
+      var index_buffer;
+      var colorLocation;
+
+      var modelMatrixLoc;
+      var viewMatrixLoc;
+
+      var matrixStack = [];
+
+      var rotateX = 0,
+        rotateY = 0;
+      var mouseX, mouseY;
+
+      var zoomFactor = 1;
+
+      function glPushMatrix() {
+        const matrix = mat4.create();
+        mat4.copy(matrix, modelMatrix);
+        matrixStack.push(matrix);
+      }
+
+      function glPopMatrix() {
+        modelMatrix = matrixStack.pop();
+      }
+
+      function drawSquare() {
+        v = new Float32Array([
+          -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5,
+        ]);
+        // Pass the vertex data to the buffer
+        gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
 
       function init() {
-        
         // ============ STEP 1: Creating a canvas=================
         canvas = document.getElementById("my_Canvas");
         gl = canvas.getContext("webgl2");
@@ -64,6 +145,11 @@
 
         // Compile the vertex shader
         gl.compileShader(vertShader);
+
+        if (!gl.getShaderParameter(vertShader, gl.COMPILE_STATUS)) {
+          console.error("vertShader: " + gl.getShaderInfoLog(vertShader));
+          return null;
+        }
 
         // Create fragment shader object
         var fragShader = gl.createShader(gl.FRAGMENT_SHADER);
@@ -96,122 +182,275 @@
 
         // Create an empty buffer object to store the vertex buffer
         vertex_buffer = gl.createBuffer();
+        normal_buffer = gl.createBuffer();
 
         // Bind vertex buffer object
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
 
-        //get the uniform location
-        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
-
-        //set the color
-        //gl.uniform4fv(colorLocation, [1,1,0,1]);
-
         // Get the attribute location
         var coordLocation = gl.getAttribLocation(shaderProgram, "aCoordinates");
 
+        var normalsLoc = gl.getAttribLocation(shaderProgram, "aVertexNormals");
+
         // Point an attribute to the currently bound VBO
-        gl.vertexAttribPointer(coordLocation, 2, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(coordLocation, 3, gl.FLOAT, false, 0, 0);
+
+        // look up uniform locations
+        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
+
+        modelMatrixLoc = gl.getUniformLocation(shaderProgram, "uModelMatrix");
+        viewMatrixLoc = gl.getUniformLocation(shaderProgram, "uViewMatrix");
 
         // Enable the attribute
         gl.enableVertexAttribArray(coordLocation);
 
+        gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer);
+        gl.vertexAttribPointer(normalsLoc, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(normalsLoc);
+
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        //llama a render
+        // create index buffer
+        index_buffer = gl.createBuffer();
+        gl.enable(gl.DEPTH_TEST);
+
         render();
       }
 
-      function render() {
-        console.log("dentro de render");
-
-        //========= STEP 4: Drawing the primitive ===============
+      function render(time) {
+        /*console.log("time = "+(time-time_old)+" milisegundos");
+             console.log("     FPS = "+1000/(time-time_old));
+             time_old = time;*/
 
         // Clear the canvas
-        gl.clearColor(0.7, 0.9, 0.7, 1.0);
+        gl.clearColor(1, 0.8, 0.9, 1.0);
 
         // Clear the color buffer bit
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         // Set the view port
         gl.viewport(0, 0, canvas.width, canvas.height);
 
         // Bind appropriate array buffer to it
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
 
-        drawRectangle(gl, -fila, 0.4, 0.3, 0.5, [0, 0, 0, 0]); //Blanco arriba
-        drawRectangle(gl, 0.5, -0.2, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo derecha
-        drawRectangle(gl, -0.1, -0.2, 0.3, 0.5, [0.4, 0.4, 1, 1]); //Azul
-        drawRectangle(gl, -0.7, -0.2, 0.3, 0.5, [0, 0, 0, 0]); //Blanco izquierda
-        drawRectangle(gl, +fila, -0.8, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo abajo
+        // Set the model Matrix.
+        modelMatrix = mat4.create();
+        mat4.identity(modelMatrix);
 
-        drawDiamond(gl, -0.67 - fila, 0.45, 0.4, 0.4, [1, 1, 0.5, 1]); //Amarillo izquierda
-        drawDiamond(gl, 0.55 - fila, 0.45, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul derecha
-        drawDiamond(gl, -0.67 + fila, -0.75, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul izquierda
-        drawDiamond(gl, 0.55 + fila, -0.75, 0.4, 0.4, [0, 0, 0, 0]); //Blanco derecha
+        // perspectiva
+        viewMatrix = mat4.create();
+        mat4.perspective(viewMatrix, Math.PI / 4, 1, 1, 30);
+        gl.uniformMatrix4fv(viewMatrixLoc, false, viewMatrix);
 
-        //Actualiza la posición de fila en función de la dirección y velocidad
-        fila += direction * speed;
+        /*eye = [player.x, player.y, player.z];
+             v = [player.x + Math.cos(player.ori), player.y, player.z + Math.sin(player.ori)];
+            mat4.lookAt(modelMatrix, eye, v, [0,1,0]);*/
 
-        // Si la fila llega a ciertos límites, cambia la dirección
-        if (fila > 2.0 || fila < -2.0) {
-          direction *= -1; // Cambia la dirección
-        }
+        mat4.lookAt(modelMatrix, [0, 0, 3], [0, 0, 0], [0, 1, 0]);
+
+        // mouse rotations
+        mat4.scale(modelMatrix, modelMatrix, [
+          zoomFactor,
+          zoomFactor,
+          zoomFactor,
+        ]);
+        mat4.rotateX(modelMatrix, modelMatrix, rotateX);
+        mat4.rotateY(modelMatrix, modelMatrix, rotateY);
+
+        // draw cube
+        //glRenderCubeIBO();
+
+        // draw circle
+        glRenderSphereIBO(20);
 
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
+        // empezamos bucle animación
         window.requestAnimationFrame(render);
       }
 
-      function drawRectangle(gl, x, y, width, height, color) {
-        var x1 = x;
-        var x2 = x + width;
-        var y1 = y;
-        var y2 = y + height;
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            x1, y1, x2, y1, 
-            x1, y2, x1, y2, 
-            x2, y1, x2, y2]),
-          gl.STATIC_DRAW
-        );
+      function glRenderCubeIBO() {
+        glPushMatrix();
+        mat4.translate(modelMatrix, modelMatrix, [-0.5, -0.5, -0.5]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
 
-        //Color de fondo
-        gl.uniform4fv(colorLocation, color);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        // create vertices
+        arrayV = new Float32Array([
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1,
+          1,
+        ]);
+        gl.bufferData(gl.ARRAY_BUFFER, arrayV, gl.STATIC_DRAW);
+
+        // draw edges
+        arrayI = new Uint16Array([
+          0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3,
+          7,
+        ]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrayI, gl.STATIC_DRAW);
+        gl.uniform4fv(colorLocation, [0, 0, 0, 1]);
+        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+
+        // draw faces
+        arrayF = new Uint16Array([
+          0,
+          3,
+          2,
+          2,
+          1,
+          0, // cara trasera
+          4,
+          5,
+          6,
+          4,
+          6,
+          7, // cara delantera
+          7,
+          6,
+          2,
+          7,
+          2,
+          3, // cara superior
+          5,
+          4,
+          0,
+          0,
+          1,
+          5, // cara inferior
+          1,
+          2,
+          6,
+          1,
+          6,
+          5, // cara derecha
+          0,
+          4,
+          7,
+          7,
+          3,
+          0, // cara izquierda
+        ]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrayF, gl.STATIC_DRAW);
+        gl.uniform4fv(colorLocation, [0.5, 0.5, 1, 1]);
+        gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+
+        delete arrayF;
+        delete arrayV;
+        delete arrayI;
+
+        glPopMatrix();
       }
 
-      function drawDiamond(gl, x, y, width, height, color) {
-        var xCenter = x + width / 2;
-        var yCenter = y + height / 2;
-        var halfWidth = width / 2;
-        var halfHeight = height / 2;
+      function glRenderSphereIBO(n) {
+        glPushMatrix();
+        mat4.scale(modelMatrix, modelMatrix, [0.7, 0.7, 0.7]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        // compute vertices
+        coords = new Float32Array(6 * n * n);
+        normals = coords;
+        step = Math.PI / n;
+        R = 1;
+        k = 0;
+        for (i = 1; i < n; i++) {
+          tita = -Math.PI / 2 + i * step;
+          for (j = 0; j < 2 * n; j++) {
+            alpha = j * step;
+            coords[k++] = R * Math.cos(tita) * Math.cos(alpha);
+            coords[k++] = R * Math.cos(tita) * Math.sin(alpha);
+            coords[k++] = R * Math.sin(tita);
+          }
+        }
+        // compute faces
+        arrayIFaces = new Uint16Array((4 * n + 2) * n);
+        k = 0;
+        for (i = 0; i < n - 2; i++) {
+          for (j = 0; j < 2 * n; j++) {
+            arrayIFaces[k++] = 2 * n * (i + 1) + j;
+            arrayIFaces[k++] = 2 * n * i + j;
+          }
+          arrayIFaces[k++] = 2 * n * (i + 1);
+          arrayIFaces[k++] = 2 * n * i;
+        }
+        // pass data to GPU
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, coords, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrayIFaces, gl.STATIC_DRAW);
 
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            xCenter,
-            yCenter + halfHeight,
-            xCenter + halfWidth,
-            yCenter,
-            xCenter,
-            yCenter - halfHeight,
-            xCenter - halfWidth,
-            yCenter,
-            xCenter,
-            yCenter + halfHeight,
-          ]),
-          gl.STATIC_DRAW
-        );
+        // draw meshes
+        for (i = 0; i < n - 2; i++)
+          gl.drawElements(
+            gl.TRIANGLE_STRIP,
+            4 * n + 2,
+            gl.UNSIGNED_SHORT,
+            2 * i * (4 * n + 2)
+          );
 
-        gl.uniform4fv(colorLocation, color);
-        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+        glPopMatrix();
+        delete coords;
+        delete arrayIFaces;
       }
 
-      //codigo principal
       window.onload = init;
+      document.onmousemove = onMouseMove;
+      document.onmousedown = onMouseDown;
+      document.onwheel = zoom;
+
+      document.onkeydown = onKeyDown;
+
+      function onKeyDown(key) {
+        switch (key.keyCode) {
+          // up arrow
+          case 38: {
+            player.x = player.x + 0.1 * Math.cos(player.ori);
+            player.z = player.z + 0.1 * Math.sin(player.ori);
+            break;
+          }
+          // down arrow
+          case 40: {
+            player.x = player.x - 0.1 * Math.cos(player.ori);
+            player.z = player.z - 0.1 * Math.sin(player.ori);
+            break;
+          }
+          // left arrow
+          case 37: {
+            player.ori -= 0.02;
+            break;
+          }
+          // down arrow
+          case 39: {
+            player.ori += 0.02;
+            break;
+          }
+        }
+      }
+
+      function onMouseDown(e) {
+        if (e.buttons == 1 && e.srcElement == canvas) {
+          mouseX = e.pageX;
+          mouseY = e.pageY;
+        }
+      }
+
+      function onMouseMove(e) {
+        if (e.buttons == 1 && e.srcElement == canvas) {
+          rotateY = rotateY + (e.pageX - mouseX) * 0.01;
+          rotateX = rotateX + (e.pageY - mouseY) * 0.01;
+          mouseX = e.pageX;
+          mouseY = e.pageY;
+          //console.log("move = ("+rotateX+","+rotateY+")");
+        }
+      }
+
+      function zoom(e) {
+        if (e.deltaY < 0) zoomFactor *= 1.1;
+        else zoomFactor *= 0.9;
+      }
     </script>
   </body>
 </html>
