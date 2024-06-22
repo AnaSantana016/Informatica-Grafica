@@ -71,9 +71,7 @@ function init() {
   grid.position.set(0, 0, 0.05);
   scene.add(grid);
   
-  //Objetos
-  //mapas de texturas
-  //De la superficie
+  //Objetos mapas de texturas de la superficie
   const tx1sun = new THREE.TextureLoader().load("https://cdn.glitch.global/41015ee0-3f76-42fb-8a56-fc575877cf8b/sunmap.jpg?v=1698921676862");
   const tx2mercu = new THREE.TextureLoader().load("https://cdn.glitch.global/41015ee0-3f76-42fb-8a56-fc575877cf8b/mercurymap.jpg?v=1698921743519");
   const tx3venus = new THREE.TextureLoader().load("https://cdn.glitch.global/41015ee0-3f76-42fb-8a56-fc575877cf8b/venusmap.jpg?v=1698921839672");
