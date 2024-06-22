@@ -1,0 +1,32 @@
+<!-- This is a static file -->
+<!-- served from your routes in server.js -->
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Mi ThreeJS</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+        
+    <!--Carga de módulos, indicando release de threejs-->       
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.152.1/build/three.module.js",  
+          "three/": "https://cdn.skypack.dev/three@0.152.1/"
+        }
+      }
+    </script>
+    
+    <!--S9-->
+    <!--script src="/script_31_shadermin.js" type="module"></script-->
+    <!--script src="/script_32_shader_mousetime.js" type="module"></script-->
+    <!--script src="/script_33_shader_dibuja.js" type="module"></script-->
+    <!--script src="/script_35_shader_texturas.js" type="module"></script-->
+    <script src="/entrega.js" type="module"></script>
+   
+   
+  </body>
+</html>
