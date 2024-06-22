@@ -4,13 +4,21 @@
   <head>
     <style>
       #my_Canvas {
-        border: 5px groove green;
+        border: 5px dotted blue;
+      }
+      body,
+      html {
+        overflow: hidden;
       }
     </style>
+    <meta name="viewport" content="width=device-width, user-scalable=no" />
+    <!-- librería GUI -->
+    <script type="text/javascript" src="dat.gui.min.js"></script>
+    <script type="text/javascript" src="gl-matrix.js"></script>
   </head>
 
   <body>
-    <canvas width="300" height="400" id="my_Canvas"></canvas>
+    <canvas style="width: 95%" width="500" height="500" id="my_Canvas"></canvas>
 
     <!-- vertex Shader -->
     <script id="vertex-shader" type="x-shader/x-vertex">
@@ -18,9 +26,10 @@
       precision mediump float;
 
       in vec2 aCoordinates;
+      uniform mat4 uModelMatrix;
 
       void main(void) {
-        gl_Position = vec4(aCoordinates, 0, 1);
+        gl_Position = uModelMatrix * vec4(aCoordinates, 0, 1);
         gl_PointSize = 10.0;
       }
     </script>
@@ -39,15 +48,86 @@
     </script>
 
     <script>
-      var colorLocation;
+      var gl;
       var canvas;
       var vertex_buffer;
-      var fila = 0.1;
-      var direction = 1;
-      var speed = 0.005;
+      var colorLocation;
+      var modelMatrixLoc;
+      var matrixStack = [];
+
+      var sun = {
+        x: 0,
+        y: 0,
+        width: 0.2,
+        height: 0.2,
+        color: [1, 1, 0, 1],
+      };
+
+      var earth = {
+        x: 0.4,
+        y: 0.9,
+        width: 0.1,
+        height: 0.1,
+        color: [0.2, 0.2, 1, 1],
+        angle: 0,
+      };
+
+      var moon = {
+        x: 0.9,
+        y: 0.9,
+        width: 0.5,
+        height: 0.5,
+        color: [1, 1, 1, 1],
+        angle: 0,
+      };
+
+      var mars = {
+        x: 0.8,
+        y: 0.6,
+        width: 0.1,
+        height: 0.1,
+        color: [1, 0, 0, 1],
+        angle: 0,
+      };
+
+      var phobos = {
+        x: 4,
+        y: 0.8,
+        width: 0.6,
+        height: 0.6,
+        color: [1, 1, 0, 1],
+        angle: 0,
+      };
+
+      var deimos = {
+        x: 4,
+        y: 0.8,
+        width: 0.6,
+        height: 0.6,
+        color: [1, 1, 0, 1],
+        angle: 0,
+      };
+
+      var y1 = 0.4;
+
+      var controls = new (function () {
+        this.translateX = 0;
+        this.translateY = 0;
+        this.rotateZ = 0;
+      })();
+
+      var gui = new dat.GUI();
+      gui.add(controls, "translateX", -1.0, 1.0, 0.01);
+      gui.add(controls, "translateY", -1.0, 1.0, 0.01);
+      gui.add(controls, "rotateZ", -180, 180, 1);
+
+      // Aplica estilos CSS para posicionarlo en la parte inferior
+      var guiContainer = document.querySelector(".dg.main");
+      guiContainer.style.position = "fixed";
+      guiContainer.style.bottom = "0";
+      guiContainer.style.left = "0";
 
       function init() {
-        
         // ============ STEP 1: Creating a canvas=================
         canvas = document.getElementById("my_Canvas");
         gl = canvas.getContext("webgl2");
@@ -100,17 +180,16 @@
         // Bind vertex buffer object
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
 
-        //get the uniform location
-        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
-
-        //set the color
-        //gl.uniform4fv(colorLocation, [1,1,0,1]);
-
         // Get the attribute location
-        var coordLocation = gl.getAttribLocation(shaderProgram, "aCoordinates");
+        coordLocation = gl.getAttribLocation(shaderProgram, "aCoordinates");
+
+        modelMatrixLoc = gl.getUniformLocation(shaderProgram, "uModelMatrix");
 
         // Point an attribute to the currently bound VBO
         gl.vertexAttribPointer(coordLocation, 2, gl.FLOAT, false, 0, 0);
+
+        // look up uniform locations
+        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
 
         // Enable the attribute
         gl.enableVertexAttribArray(coordLocation);
@@ -118,17 +197,13 @@
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        //llama a render
         render();
       }
 
-      function render() {
-        console.log("dentro de render");
-
-        //========= STEP 4: Drawing the primitive ===============
+      function render(time) {
 
         // Clear the canvas
-        gl.clearColor(0.7, 0.9, 0.7, 1.0);
+        gl.clearColor(0.8, 0.4, 0.5, 1.0);
 
         // Clear the color buffer bit
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -139,78 +214,166 @@
         // Bind appropriate array buffer to it
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
 
-        drawRectangle(gl, -fila, 0.4, 0.3, 0.5, [0, 0, 0, 0]); //Blanco arriba
-        drawRectangle(gl, 0.5, -0.2, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo derecha
-        drawRectangle(gl, -0.1, -0.2, 0.3, 0.5, [0.4, 0.4, 1, 1]); //Azul
-        drawRectangle(gl, -0.7, -0.2, 0.3, 0.5, [0, 0, 0, 0]); //Blanco izquierda
-        drawRectangle(gl, +fila, -0.8, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo abajo
+        //gl.uniform2f(translationLoc, controls.translateX, controls.translateY);
 
-        drawDiamond(gl, -0.67 - fila, 0.45, 0.4, 0.4, [1, 1, 0.5, 1]); //Amarillo izquierda
-        drawDiamond(gl, 0.55 - fila, 0.45, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul derecha
-        drawDiamond(gl, -0.67 + fila, -0.75, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul izquierda
-        drawDiamond(gl, 0.55 + fila, -0.75, 0.4, 0.4, [0, 0, 0, 0]); //Blanco derecha
+        modelMatrix = mat4.create();
+        mat4.identity(modelMatrix);
+        mat4.translate(modelMatrix, modelMatrix, [
+          controls.translateX,
+          controls.translateY,
+          0,
+        ]);
+        mat4.rotateZ(
+          modelMatrix,
+          modelMatrix,
+          (controls.rotateZ / 180) * Math.PI
+        );
 
-        //Actualiza la posición de fila en función de la dirección y velocidad
-        fila += direction * speed;
+        // draw sun
+        glPushMatrix();
+        mat4.scale(modelMatrix, modelMatrix, [sun.width, sun.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, sun.color);
+        drawSquare();
+        glPopMatrix();
 
-        // Si la fila llega a ciertos límites, cambia la dirección
-        if (fila > 2.0 || fila < -2.0) {
-          direction *= -1; // Cambia la dirección
-        }
+        //draw earth
+        glPushMatrix();
+        earth.angle += 0.05;
+        mat4.scale(modelMatrix, modelMatrix, [0.4, 0.4, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, [0.2, 0.2, 1, 1]);
+        
+        //orbit
+        drawOrbit(1,1);
+        mat4.rotateZ(modelMatrix, modelMatrix, earth.angle);
+        mat4.translate(modelMatrix, modelMatrix, [earth.x, earth.y, 0]);
+        mat4.scale(modelMatrix, modelMatrix, [earth.width, earth.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, earth.color);
+        drawSquare();
+
+        //draw moon
+        moon.angle += 0.1;
+        mat4.scale(modelMatrix, modelMatrix, [moon.x, moon.x, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, [1, 1, 1, 1]);
+
+        //orbit
+        drawOrbit(1,1);
+        mat4.rotateZ(modelMatrix, modelMatrix, moon.angle);
+        mat4.translate(modelMatrix, modelMatrix, [moon.x, moon.y, 0]);
+        mat4.scale(modelMatrix, modelMatrix, [moon.width, moon.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, moon.color);
+        drawSquare();
+
+        glPopMatrix();
+
+        // draw mars
+        glPushMatrix();
+        mars.angle += 0.03;
+        mat4.scale(modelMatrix, modelMatrix, [0.6, 0.6, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, [1, 0, 0, 1]);
+        
+        //orbit
+        drawOrbit(1, 1);
+        mat4.rotateZ(modelMatrix, modelMatrix, mars.angle);
+        mat4.translate(modelMatrix, modelMatrix, [mars.x, mars.y, 0]);
+        mat4.scale(modelMatrix, modelMatrix, [mars.width, mars.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, mars.color);
+        drawSquare();
+
+        // draw phobos
+        glPushMatrix();
+        phobos.angle += 0.03; 
+        mat4.scale(modelMatrix, modelMatrix, [0.3, 0.3, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, [1, 1, 0, 1]);
+        
+        //orbit
+        drawOrbit(4, 4);
+        mat4.rotateZ(modelMatrix, modelMatrix, phobos.angle);
+        mat4.translate(modelMatrix, modelMatrix, [phobos.x, phobos.y, 0]);
+        mat4.scale(modelMatrix, modelMatrix, [phobos.width, phobos.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, phobos.color);
+        drawSquare();
+
+        glPopMatrix();
+
+        // draw deimos
+        glPushMatrix();
+        deimos.angle += 0.05; 
+        mat4.scale(modelMatrix, modelMatrix, [0.5, 0.5, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, [1, 1, 0, 1]);
+        
+        //orbit
+        drawOrbit(4, 4);
+        mat4.rotateZ(modelMatrix, modelMatrix, deimos.angle);
+        mat4.translate(modelMatrix, modelMatrix, [deimos.x, deimos.y, 0]);
+        mat4.scale(modelMatrix, modelMatrix, [deimos.width, deimos.height, 1]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        gl.uniform4fv(colorLocation, deimos.color);
+        drawSquare();
+
+        glPopMatrix();
 
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+        // empezamos bucle animación
         window.requestAnimationFrame(render);
       }
 
-      function drawRectangle(gl, x, y, width, height, color) {
-        var x1 = x;
-        var x2 = x + width;
-        var y1 = y;
-        var y2 = y + height;
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            x1, y1, x2, y1, 
-            x1, y2, x1, y2, 
-            x2, y1, x2, y2]),
-          gl.STATIC_DRAW
-        );
+      //Dibujamos la orbita entre un rango entre la parte de
+      //superior de la elipse e inferior de la elipse
+      function drawOrbit(semiMajorAxis, semiMinorAxis) {
+        //La cantidad de segmentos para formar el circulo
+        const n = 50;
+        coords = new Float32Array(n * 2);
+        
+        //Voy recorriendo el segmento
+        for (i = 0; i < n; i++) {
+          
+          //El ángulo en radianes para el punto actual
+          const angle = (2 * Math.PI * i) / n;
+          
+          //Las coordenadas (x, y) del punto en la elipse
+          const x = semiMajorAxis * Math.cos(angle);
+          const y = semiMinorAxis * Math.sin(angle);
+          
+          //Almacenamos las coordenadas en el arreglo
+          coords[2 * i] = x;
+          coords[2 * i + 1] = y;
+        }
+        gl.bufferData(gl.ARRAY_BUFFER, coords, gl.STATIC_DRAW);
+        delete coords;
+        gl.drawArrays(gl.LINE_LOOP, 0, n);
+      }
 
-        //Color de fondo
-        gl.uniform4fv(colorLocation, color);
+      function drawSquare() {
+        v = new Float32Array([
+          -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5,
+        ]);
+        // Pass the vertex data to the buffer
+        gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
 
-      function drawDiamond(gl, x, y, width, height, color) {
-        var xCenter = x + width / 2;
-        var yCenter = y + height / 2;
-        var halfWidth = width / 2;
-        var halfHeight = height / 2;
-
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            xCenter,
-            yCenter + halfHeight,
-            xCenter + halfWidth,
-            yCenter,
-            xCenter,
-            yCenter - halfHeight,
-            xCenter - halfWidth,
-            yCenter,
-            xCenter,
-            yCenter + halfHeight,
-          ]),
-          gl.STATIC_DRAW
-        );
-
-        gl.uniform4fv(colorLocation, color);
-        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+      function glPushMatrix() {
+        const matrix = mat4.create();
+        mat4.copy(matrix, modelMatrix);
+        matrixStack.push(matrix);
       }
 
-      //codigo principal
+      function glPopMatrix() {
+        modelMatrix = matrixStack.pop();
+      }
+
       window.onload = init;
     </script>
   </body>
