@@ -4,24 +4,36 @@
   <head>
     <style>
       #my_Canvas {
-        border: 5px groove green;
+        border: 0px dotted blue;
+      }
+      body,
+      html {
+        overflow: hidden;
       }
     </style>
+    <meta name="viewport" content="width=device-width, user-scalable=no" />
+    <script type="text/javascript" src="dat.gui.min.js"></script>
+    <script src="gl-matrix-min.js"></script>
   </head>
 
   <body>
-    <canvas width="300" height="400" id="my_Canvas"></canvas>
+    <!-- Mostramos el marcador-->
+    <div id="collision">Colision: 0</div>
+    <canvas style="width: 95%" width="500" height="500" id="my_Canvas"></canvas>
 
     <!-- vertex Shader -->
     <script id="vertex-shader" type="x-shader/x-vertex">
       #version 300 es
       precision mediump float;
 
-      in vec2 aCoordinates;
+      in vec3 aCoordinates;
+      uniform mat4 uModelMatrix;
+      uniform mat4 uViewMatrix;
 
       void main(void) {
-        gl_Position = vec4(aCoordinates, 0, 1);
+        gl_Position = uViewMatrix * uModelMatrix * vec4(aCoordinates, 1.0);
         gl_PointSize = 10.0;
+        //gl_Position.z *= -1.0;
       }
     </script>
 
@@ -39,15 +51,62 @@
     </script>
 
     <script>
-      var colorLocation;
+      const { vec2, vec3, mat3, mat4 } = glMatrix;
+
+      var player = {
+        x: 0,
+        y: 0.5,
+        z: 10,
+        ori: -Math.PI / 2,
+      };
+
+      var gl;
       var canvas;
       var vertex_buffer;
-      var fila = 0.1;
-      var direction = 1;
-      var speed = 0.005;
+      var colorLocation;
+      var index_buffer;
+
+      var rotateX = 0,
+        rotateY = 0;
+      var mouseX, mouseY;
+      var zoomFactor = 1;
+      var viewMatrixLoc, modelMatrixLoc;
+
+      var cube1PositionX = -3; // Posición inicial del primer cubo
+      var cube2PositionX = 3; // Posición inicial del segundo cubo
+
+      var bullets = []; // Arreglo para almacenar los disparos
+
+      var collision = 0; // Variable para mantener la puntuación
+
+      var matrixStack = [];
+
+      //Una función para actualizar el marcador
+      function updateScore() {
+        const collisionElement = document.getElementById("collision");
+        collisionElement.textContent = "Colision: " + collision;
+      }
+
+      function glPushMatrix() {
+        const matrix = mat4.create();
+        mat4.copy(matrix, modelMatrix);
+        matrixStack.push(matrix);
+      }
+
+      function glPopMatrix() {
+        modelMatrix = matrixStack.pop();
+      }
+
+      function drawSquare() {
+        v = new Float32Array([
+          -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5,
+        ]);
+        // Pass the vertex data to the buffer
+        gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
 
       function init() {
-        
         // ============ STEP 1: Creating a canvas=================
         canvas = document.getElementById("my_Canvas");
         gl = canvas.getContext("webgl2");
@@ -96,122 +155,307 @@
 
         // Create an empty buffer object to store the vertex buffer
         vertex_buffer = gl.createBuffer();
+        index_buffer = gl.createBuffer();
 
         // Bind vertex buffer object
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
-
-        //get the uniform location
-        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
-
-        //set the color
-        //gl.uniform4fv(colorLocation, [1,1,0,1]);
 
         // Get the attribute location
         var coordLocation = gl.getAttribLocation(shaderProgram, "aCoordinates");
 
         // Point an attribute to the currently bound VBO
-        gl.vertexAttribPointer(coordLocation, 2, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(coordLocation, 3, gl.FLOAT, false, 0, 0);
+
+        // look up uniform locations
+        colorLocation = gl.getUniformLocation(shaderProgram, "uColor");
+
+        modelMatrixLoc = gl.getUniformLocation(shaderProgram, "uModelMatrix");
+
+        viewMatrixLoc = gl.getUniformLocation(shaderProgram, "uViewMatrix");
 
         // Enable the attribute
         gl.enableVertexAttribArray(coordLocation);
+        gl.enable(gl.DEPTH_TEST);
 
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        //llama a render
         render();
       }
 
-      function render() {
-        console.log("dentro de render");
-
-        //========= STEP 4: Drawing the primitive ===============
-
+      function render(time) {
         // Clear the canvas
-        gl.clearColor(0.7, 0.9, 0.7, 1.0);
+        gl.clearColor(0.9, 1, 1, 1.0);
 
         // Clear the color buffer bit
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         // Set the view port
         gl.viewport(0, 0, canvas.width, canvas.height);
 
         // Bind appropriate array buffer to it
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
 
-        drawRectangle(gl, -fila, 0.4, 0.3, 0.5, [0, 0, 0, 0]); //Blanco arriba
-        drawRectangle(gl, 0.5, -0.2, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo derecha
-        drawRectangle(gl, -0.1, -0.2, 0.3, 0.5, [0.4, 0.4, 1, 1]); //Azul
-        drawRectangle(gl, -0.7, -0.2, 0.3, 0.5, [0, 0, 0, 0]); //Blanco izquierda
-        drawRectangle(gl, +fila, -0.8, 0.3, 0.5, [1, 1, 0.5, 1]); //Amarillo abajo
+        // aquí renderizamos la escena
+        modelMatrix = mat4.create();
+        mat4.identity(modelMatrix);
 
-        drawDiamond(gl, -0.67 - fila, 0.45, 0.4, 0.4, [1, 1, 0.5, 1]); //Amarillo izquierda
-        drawDiamond(gl, 0.55 - fila, 0.45, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul derecha
-        drawDiamond(gl, -0.67 + fila, -0.75, 0.4, 0.4, [0.4, 0.4, 1, 1]); //Azul izquierda
-        drawDiamond(gl, 0.55 + fila, -0.75, 0.4, 0.4, [0, 0, 0, 0]); //Blanco derecha
+        // perspectiva
+        viewMatrix = mat4.create();
+        mat4.perspective(viewMatrix, Math.PI / 4, 1, 1, 30);
+        gl.uniformMatrix4fv(viewMatrixLoc, false, viewMatrix);
+        //mat4.lookAt(modelMatrix, [0, 0.5, 10], [0, 0.5, 0], [0, 1, 0]);
 
-        //Actualiza la posición de fila en función de la dirección y velocidad
-        fila += direction * speed;
+        eye = [player.x, player.y, player.z];
+        v = [
+          player.x + Math.cos(player.ori),
+          player.y,
+          player.z + Math.sin(player.ori),
+        ];
+        mat4.lookAt(modelMatrix, eye, v, [0, 1, 0]);
 
-        // Si la fila llega a ciertos límites, cambia la dirección
-        if (fila > 2.0 || fila < -2.0) {
-          direction *= -1; // Cambia la dirección
+        //mouse rotations
+        mat4.rotateX(modelMatrix, modelMatrix, rotateX);
+        mat4.rotateY(modelMatrix, modelMatrix, rotateY);
+
+        // transformaciones GUI y ratón
+        mat4.scale(modelMatrix, modelMatrix, [
+          zoomFactor,
+          zoomFactor,
+          zoomFactor,
+        ]);
+        mat4.rotateX(modelMatrix, modelMatrix, rotateX);
+        mat4.rotateY(modelMatrix, modelMatrix, rotateY);
+
+        // Renderiza los cubos con posiciones actualizadas
+        glRenderCubeIBO(cube1PositionX, 0, 2, [1, 0, 1, 1], [1, 1, 1]);
+        glRenderCubeIBO(cube2PositionX, 0, 0, [0, 1, 1, 1], [1, 1, 1]);
+        glRenderGround(8, 10);
+
+        // Movimiento de las balas
+        for (let i = 0; i < bullets.length; i++) {
+          const bullet = bullets[i];
+          bullet.x += Math.cos(bullet.ori) * 0.1;
+          bullet.z += Math.sin(bullet.ori) * 0.1;
+          drawBullet(bullets[i]);
         }
 
         // Unbind the buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
+        // Actualiza las posiciones de los cubos (izquierda a derecha)
+        cube1PositionX += 0.1; // Puedes ajustar la velocidad
+        cube2PositionX -= 0.1; // Puedes ajustar la velocidad
+
+        // Asegúrate de que los cubos no se salgan del rango del suelo
+        if (cube1PositionX > 4) {
+          cube1PositionX = -4;
+        }
+        if (cube2PositionX < -4) {
+          cube2PositionX = 4;
+        }
+
+        // Miramos si hay colisiones
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const bullet = bullets[i];
+          if (checkCollision(bullet)) {
+            bullets.splice(i, 1);
+            collision++; // Incrementa la puntuación si hay una colision
+            updateScore(); // Actualiza el marcador en el HTML
+          } else if (bullet.y < 0 || bullet.z < -10) {
+            bullets.splice(i, 1);
+          }
+        }
+
+        // empezamos bucle animación
         window.requestAnimationFrame(render);
       }
 
-      function drawRectangle(gl, x, y, width, height, color) {
-        var x1 = x;
-        var x2 = x + width;
-        var y1 = y;
-        var y2 = y + height;
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            x1, y1, x2, y1, 
-            x1, y2, x1, y2, 
-            x2, y1, x2, y2]),
-          gl.STATIC_DRAW
-        );
+      function glRenderCubeIBO(x, cubePositionY, z, color, size) {
+        glPushMatrix();
+        mat4.translate(modelMatrix, modelMatrix, [x, cubePositionY, z]);
 
-        //Color de fondo
+        // Escala el cubo
+        mat4.scale(modelMatrix, modelMatrix, size);
+
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+
+        // create vertices
+        arrayV = new Float32Array([
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1,
+          1,
+        ]);
+        gl.bufferData(gl.ARRAY_BUFFER, arrayV, gl.STATIC_DRAW);
+
+        // draw edges
+        arrayI = new Uint16Array([
+          0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3,
+          7,
+        ]);
+
+        // draw faces
+        arrayF = new Uint16Array([
+          4, 5, 6, 0, 3, 2, 2, 1, 0, 4, 6, 7, 7, 6, 2, 7, 2, 3, 5, 4, 0, 0, 1,
+          5, 1, 2, 6, 1, 6, 5, 0, 4, 7, 7, 3, 0,
+        ]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrayF, gl.STATIC_DRAW);
         gl.uniform4fv(colorLocation, color);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrayI, gl.STATIC_DRAW);
+        gl.uniform4fv(colorLocation, [0, 0, 0, 1]);
+        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+
+        delete arrayV;
+        delete arrayI;
+        glPopMatrix();
       }
 
-      function drawDiamond(gl, x, y, width, height, color) {
-        var xCenter = x + width / 2;
-        var yCenter = y + height / 2;
-        var halfWidth = width / 2;
-        var halfHeight = height / 2;
-
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array([
-            xCenter,
-            yCenter + halfHeight,
-            xCenter + halfWidth,
-            yCenter,
-            xCenter,
-            yCenter - halfHeight,
-            xCenter - halfWidth,
-            yCenter,
-            xCenter,
-            yCenter + halfHeight,
-          ]),
-          gl.STATIC_DRAW
-        );
-
-        gl.uniform4fv(colorLocation, color);
-        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+      // draw squared floor
+      function glRenderGround(size, n) {
+        glPushMatrix();
+        mat4.scale(modelMatrix, modelMatrix, [size, size, size]);
+        mat4.translate(modelMatrix, modelMatrix, [-0.5, 0, -0.5]);
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+        // creamos vector vértices
+        k = 0;
+        arrayV = new Float32Array(12 * n);
+        for (i = 0; i < n; i++) {
+          arrayV[k++] = i / (n - 1);
+          arrayV[k++] = 0;
+          arrayV[k++] = 0;
+          arrayV[k++] = i / (n - 1);
+          arrayV[k++] = 0;
+          arrayV[k++] = 1;
+        }
+        for (i = 0; i <= n; i++) {
+          arrayV[k++] = 0;
+          arrayV[k++] = 0;
+          arrayV[k++] = i / (n - 1);
+          arrayV[k++] = 1;
+          arrayV[k++] = 0;
+          arrayV[k++] = i / (n - 1);
+        }
+        gl.bufferData(gl.ARRAY_BUFFER, arrayV, gl.STATIC_DRAW);
+        gl.drawArrays(gl.LINES, 0, 4 * n);
+        delete arrayV;
+        glPopMatrix();
       }
 
-      //codigo principal
+      // Dibujamos la forma de la bala
+      function drawBullet(bullet) {
+        glPushMatrix();
+        mat4.translate(modelMatrix, modelMatrix, [
+          bullet.x,
+          bullet.y,
+          bullet.z,
+        ]);
+
+        mat4.rotateY(modelMatrix, modelMatrix, bullet.ori);
+
+        mat4.scale(modelMatrix, modelMatrix, [1, 1, 1]);
+
+        gl.uniformMatrix4fv(modelMatrixLoc, false, modelMatrix);
+
+        glRenderCubeIBO(0, 0, 0, [1, 0, 0, 1], [0.5, 0.5, 0.5]);
+
+        glPopMatrix();
+      }
+
+      // Comprobamos si en algun momento la bala choca con un cubo
+      function checkCollision(bullet) {
+        for (var i = 0; i < 2; i++) {
+          var cubeX = i === 0 ? cube1PositionX : cube2PositionX;
+          var cubeY = 0;
+          var cubeZ = i === 0 ? 2 : 0;
+          var cubeSize = 1;
+
+          if (
+            bullet.x + 0.5 * 0.5 > cubeX - 0.5 * cubeSize &&
+            bullet.x - 0.5 * 0.5 < cubeX + 0.5 * cubeSize &&
+            bullet.y + 0.5 * 0.5 > cubeY - 0.5 * cubeSize &&
+            bullet.y - 0.5 * 0.5 < cubeY + 0.5 * cubeSize &&
+            bullet.z + 0.5 * 0.5 > cubeZ - 0.5 * cubeSize &&
+            bullet.z - 0.5 * 0.5 < cubeZ + 0.5 * cubeSize
+          ) {
+            console.log("Colision detectada con el cubo " + i);
+            return true;
+          }
+        }
+      }
+
+      function onKeyDown(key) {
+        switch (key.keyCode) {
+          // up arrow
+          case 38: {
+            player.x = player.x + 0.1 * Math.cos(player.ori);
+            player.z = player.z + 0.1 * Math.sin(player.ori);
+            break;
+          }
+          // down arrow
+          case 40: {
+            player.x = player.x - 0.1 * Math.cos(player.ori);
+            player.z = player.z - 0.1 * Math.sin(player.ori);
+            break;
+          }
+          // left arrow
+          case 37: {
+            player.ori -= 0.02;
+            break;
+          }
+          // down arrow
+          case 39: {
+            player.ori += 0.02;
+            break;
+          }
+          // Space bar to shoot
+          case 32: {
+            shoot();
+            break;
+          }
+        }
+      }
+
+      function shoot() {
+        var bullet = {
+          x: player.x,
+          y: player.y,
+          z: player.z,
+          ori: player.ori,
+        };
+        bullets.push(bullet);
+        console.log("Disparo realizado");
+      }
+
+      function onMouseDown(e) {
+        if (e.buttons == 1 && e.srcElement == canvas) {
+          mouseX = e.pageX;
+          mouseY = e.pageY;
+        }
+      }
+
+      function onMouseMove(e) {
+        if (e.buttons == 1 && e.srcElement == canvas) {
+          rotateY = rotateY + (e.pageX - mouseX) * 0.01;
+          rotateX = rotateX + (e.pageY - mouseY) * 0.01;
+          mouseX = e.pageX;
+          mouseY = e.pageY;
+          //console.log("move = ("+mouseX+","+mouseY+")");
+        }
+      }
+
+      function zoom(e) {
+        if (e.deltaY < 0) zoomFactor *= 1.1;
+        else zoomFactor *= 0.9;
+      }
+
       window.onload = init;
+      document.onmousedown = onMouseDown;
+      document.onmousemove = onMouseMove;
+      document.onwheel = zoom;
+      document.onkeydown = onKeyDown;
     </script>
   </body>
 </html>
