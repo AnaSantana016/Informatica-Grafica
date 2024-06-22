@@ -371,7 +371,6 @@ function checkCollision(object1, object2) {
   }
 }
 
-
 function updatePhysics(deltaTime) {
   
   physicsWorld.stepSimulation(deltaTime, 10);
